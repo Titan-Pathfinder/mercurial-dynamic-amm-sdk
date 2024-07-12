@@ -11,6 +11,7 @@ use prog_dynamic_amm::state::Pool;
 use prog_dynamic_vault::state::Vault;
 use spl_token_swap::curve::calculator::TradeDirection;
 use std::collections::HashMap;
+use anyhow::Result;
 
 pub struct VaultInfo {
     /// Amount of vault lp hold by the pool
@@ -241,10 +242,10 @@ pub fn compute_pool_tokens(
     let token_a_amount = vault_a
         .vault
         .get_amount_by_share(current_time, vault_a.lp_amount, vault_a.lp_supply)
-        .ok_or(PoolError::MathOverflow)?;
+        .ok_or(error!(PoolError::MathOverflow))?;
     let token_b_amount = vault_b
         .vault
         .get_amount_by_share(current_time, vault_b.lp_amount, vault_b.lp_supply)
-        .ok_or(PoolError::MathOverflow)?;
+        .ok_or(error!(PoolError::MathOverflow))?;
     Ok((token_a_amount, token_b_amount))
 }
