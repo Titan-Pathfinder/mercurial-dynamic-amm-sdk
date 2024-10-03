@@ -4,8 +4,8 @@ use prog_dynamic_amm::state::CurveType;
 
 use self::{constant_product::ConstantProduct, stable_swap::StableSwap};
 
-mod constant_product;
-mod stable_swap;
+pub mod constant_product;
+pub mod stable_swap;
 
 /// Encodes all results of swapping
 #[derive(Debug, PartialEq)]
