@@ -14,7 +14,7 @@ pub struct StableSwap {
 }
 
 impl StableSwap {
-    fn upscale_token_a(&self, token_amount: u128) -> Option<u128> {
+    pub fn upscale_token_a(&self, token_amount: u128) -> Option<u128> {
         let normalized_token_amount = self.token_multiplier.upscale_token_a(token_amount)?;
 
         if self.depeg.depeg_type != DepegType::None {
@@ -24,7 +24,7 @@ impl StableSwap {
         }
     }
 
-    fn downscale_token_a(&self, token_amount: u128) -> Option<u128> {
+    pub fn downscale_token_a(&self, token_amount: u128) -> Option<u128> {
         let denormalized_token_amount = self.token_multiplier.downscale_token_a(token_amount)?;
 
         if self.depeg.depeg_type != DepegType::None {
@@ -34,7 +34,7 @@ impl StableSwap {
         }
     }
 
-    fn upscale_token_b(&self, token_amount: u128) -> Option<u128> {
+    pub fn upscale_token_b(&self, token_amount: u128) -> Option<u128> {
         let normalized_token_amount = self.token_multiplier.upscale_token_b(token_amount)?;
 
         if self.depeg.depeg_type != DepegType::None {
@@ -44,7 +44,7 @@ impl StableSwap {
         }
     }
 
-    fn downscale_token_b(&self, token_amount: u128) -> Option<u128> {
+    pub fn downscale_token_b(&self, token_amount: u128) -> Option<u128> {
         let denormalized_token_amount = self.token_multiplier.downscale_token_b(token_amount)?;
 
         if self.depeg.depeg_type != DepegType::None {
