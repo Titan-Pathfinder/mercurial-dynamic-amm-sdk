@@ -22,7 +22,7 @@ pub struct VaultInfo {
     pub vault: Vault,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct QuoteData {
     /// Pool state to swap
     pub pool: Pool,
