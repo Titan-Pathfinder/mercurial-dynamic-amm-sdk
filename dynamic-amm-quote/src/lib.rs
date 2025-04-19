@@ -5,10 +5,9 @@ use crate::depeg::update_base_virtual_price;
 use crate::math::*;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, TokenAccount};
-use anyhow::Result;
-use anyhow::{ensure, Context};
+use anyhow::{anyhow, ensure, Context, Result};
 use prog_dynamic_amm::error::PoolError;
-use prog_dynamic_amm::state::Pool;
+use prog_dynamic_amm::state::{ActivationType, Pool};
 use prog_dynamic_vault::state::Vault;
 use spl_token_swap::curve::calculator::TradeDirection;
 use std::collections::HashMap;
@@ -75,13 +74,19 @@ pub fn compute_quote(
         stake_data,
     } = quote_data;
 
-    let current_slot = clock.slot;
-    if pool.alpha_vault.whitelisted_vault.ne(&Pubkey::default()) {
-        ensure!(
-            pool.alpha_vault.activation_slot >= current_slot,
-            "Swap is disabled"
-        );
-    }
+    let activation_type =
+        ActivationType::try_from(pool.bootstrapping.activation_type).map_err(|e| anyhow!(e))?;
+
+    let current_point = match activation_type {
+        ActivationType::Slot => clock.slot,
+        ActivationType::Timestamp => clock.unix_timestamp as u64,
+    };
+
+    ensure!(pool.enabled, "Pool disabled");
+    ensure!(
+        current_point >= pool.bootstrapping.activation_point,
+        "Swap is disabled"
+    );
 
     update_base_virtual_price(&mut pool, &clock, stake_data)?;
 
@@ -155,6 +160,11 @@ pub fn compute_quote(
         .fees
         .protocol_trading_fee(trade_fee)
         .context("Fail to calculate protocol trading fee")?;
+
+    // Protocol fee is a cut from trade fee
+    let trade_fee = trade_fee
+        .checked_sub(protocol_fee)
+        .context("Fail to calculate trade fee")?;
 
     let in_amount_after_protocol_fee = in_amount
         .checked_sub(protocol_fee.try_into()?)

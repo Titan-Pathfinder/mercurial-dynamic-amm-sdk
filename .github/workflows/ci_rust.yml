@@ -8,13 +8,14 @@ on:
       - "LICENSE"
       - ".editorconfig"
     branches:
-      - master
+      - main
       - develop
       - staging
       - feat/protocol-fee-part-of-lp-fees
 
 env:
   SOLANA_CLI_VERSION: 1.16.3
+  RUST_TOOLCHAIN_VERSION: 1.76.0
 
 jobs:
   changed_files_rust:
@@ -45,11 +46,11 @@ jobs:
       # Install rust + toolchain
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
           components: clippy
       # Cargo build cache
       - name: Cargo Cache
-        uses: actions/cache@v1
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/
