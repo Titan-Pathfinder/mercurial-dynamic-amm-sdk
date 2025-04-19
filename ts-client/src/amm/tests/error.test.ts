@@ -3,19 +3,15 @@ import { airDropSol, getOrCreateATA, mockWallet } from './utils';
 import {
   CONSTANT_PRODUCT_DEFAULT_TRADE_FEE_BPS,
   DEFAULT_SLIPPAGE,
-  DEVNET_COIN,
-  DEVNET_POOL,
   MAINNET_POOL,
   STABLE_SWAP_DEFAULT_TRADE_FEE_BPS,
 } from '../constants';
-import { Cluster, Connection, PublicKey } from '@solana/web3.js';
-import { AnchorProvider, BN } from '@project-serum/anchor';
+import { Connection, PublicKey } from '@solana/web3.js';
+import { AnchorProvider, BN } from '@coral-xyz/anchor';
 import DynamicAmmError from '../error';
 import { IDL } from '../idl';
-import { TOKEN_PROGRAM_ID, Token } from '@solana/spl-token';
-import { TokenInfo } from '@solana/spl-token-registry';
+import { createMint, getMint, Mint, mintTo } from '@solana/spl-token';
 import { derivePoolAddress } from '../utils';
-import { msolTokenInfo, solTokenInfo } from './stableSwap.test';
 
 describe('Error parsing', () => {
   const connection = new Connection('http://127.0.0.1:8899', 'confirmed');
@@ -23,14 +19,11 @@ describe('Error parsing', () => {
     commitment: connection.commitment,
   });
 
-  let usdtToken: Token;
-  let usdcToken: Token;
-
-  let usdtTokenInfo: TokenInfo;
-  let usdcTokenInfo: TokenInfo;
-
   let USDT: PublicKey;
   let USDC: PublicKey;
+
+  let usdtMint: Mint;
+  let usdcMint: Mint;
 
   let mockWalletUsdtATA: PublicKey;
   let mockWalletUsdcATA: PublicKey;
@@ -48,49 +41,41 @@ describe('Error parsing', () => {
   beforeAll(async () => {
     await airDropSol(connection, mockWallet.publicKey, 10);
 
-    usdtToken = await Token.createMint(
+    [USDT, USDC] = await Promise.all(
+      [usdtDecimal, usdcDecimal].map((decimal) =>
+        createMint(provider.connection, mockWallet.payer, mockWallet.publicKey, null, decimal),
+      ),
+    );
+    [mockWalletUsdtATA, mockWalletUsdcATA] = await Promise.all(
+      [USDT, USDC].map((m) => getOrCreateATA(connection, m, mockWallet.publicKey, mockWallet.payer)),
+    );
+    [usdtMint, usdcMint] = await Promise.all([USDT, USDC].map((mint) => getMint(connection, mint)));
+
+    await mintTo(
       provider.connection,
       mockWallet.payer,
-      mockWallet.publicKey,
-      null,
-      usdtDecimal,
-      TOKEN_PROGRAM_ID,
+      USDT,
+      mockWalletUsdtATA,
+      mockWallet.payer.publicKey,
+      1000000 * usdtMultiplier,
+      [],
+      {
+        commitment: 'confirmed',
+      },
     );
 
-    USDT = usdtToken.publicKey;
-    usdtTokenInfo = {
-      chainId: 101,
-      address: usdtToken.publicKey.toString(),
-      symbol: 'USDT',
-      decimals: usdtDecimal,
-      name: 'Tether USD',
-      logoURI: 'https://assets.coingecko.com/coins/images/325/large/Tether.png',
-    };
-
-    usdcToken = await Token.createMint(
+    await mintTo(
       provider.connection,
       mockWallet.payer,
-      mockWallet.publicKey,
-      null,
-      usdcDecimal,
-      TOKEN_PROGRAM_ID,
+      USDC,
+      mockWalletUsdcATA,
+      mockWallet.payer.publicKey,
+      1000000 * usdcMultiplier,
+      [],
+      {
+        commitment: 'confirmed',
+      },
     );
-
-    USDC = usdcToken.publicKey;
-    usdcTokenInfo = {
-      chainId: 101,
-      address: usdcToken.publicKey.toString(),
-      symbol: 'USDC',
-      decimals: usdcDecimal,
-      name: 'USD Coin',
-      logoURI: 'https://assets.coingecko.com/coins/images/6319/large/USD_Coin_icon.png',
-    };
-
-    mockWalletUsdtATA = await getOrCreateATA(connection, USDT, mockWallet.publicKey, mockWallet.payer);
-    mockWalletUsdcATA = await getOrCreateATA(connection, USDC, mockWallet.publicKey, mockWallet.payer);
-
-    await usdtToken.mintTo(mockWalletUsdtATA, mockWallet.payer, [], 1000000 * usdtMultiplier);
-    await usdcToken.mintTo(mockWalletUsdcATA, mockWallet.payer, [], 1000000 * usdcMultiplier);
   });
 
   beforeAll(async () => {
@@ -103,8 +88,8 @@ describe('Error parsing', () => {
     let transaction = await AmmImpl.createPermissionlessPool(
       connection,
       mockWallet.publicKey,
-      usdtTokenInfo,
-      usdcTokenInfo,
+      USDT,
+      USDC,
       usdtDepositAmount,
       usdcDepositAmount,
       true,
@@ -115,15 +100,23 @@ describe('Error parsing', () => {
     let txHash = await connection.sendRawTransaction(transaction.serialize());
     await connection.confirmTransaction(txHash, 'finalized');
 
-    let poolKey = derivePoolAddress(connection, usdtTokenInfo, usdcTokenInfo, true, tradeFeeBps);
-    stablePool = await AmmImpl.create(connection, poolKey, usdtTokenInfo, usdcTokenInfo);
+    let poolKey = derivePoolAddress(
+      connection,
+      usdtMint.address,
+      usdcMint.address,
+      usdtMint.decimals,
+      usdcMint.decimals,
+      true,
+      tradeFeeBps,
+    );
+    stablePool = await AmmImpl.create(connection, poolKey);
 
     tradeFeeBps = new BN(CONSTANT_PRODUCT_DEFAULT_TRADE_FEE_BPS);
     transaction = await AmmImpl.createPermissionlessPool(
       connection,
       mockWallet.publicKey,
-      usdtTokenInfo,
-      usdcTokenInfo,
+      USDT,
+      USDC,
       usdtDepositAmount,
       usdcDepositAmount,
       false,
@@ -134,14 +127,22 @@ describe('Error parsing', () => {
     txHash = await connection.sendRawTransaction(transaction.serialize());
     await connection.confirmTransaction(txHash, 'finalized');
 
-    poolKey = derivePoolAddress(connection, usdtTokenInfo, usdcTokenInfo, false, tradeFeeBps);
-    cpPool = await AmmImpl.create(connection, poolKey, usdtTokenInfo, usdcTokenInfo);
+    poolKey = derivePoolAddress(
+      connection,
+      usdtMint.address,
+      usdcMint.address,
+      usdtMint.decimals,
+      usdcMint.decimals,
+      false,
+      tradeFeeBps,
+    );
+    cpPool = await AmmImpl.create(connection, poolKey);
 
-    lstPool = await AmmImpl.create(connection, MAINNET_POOL.SOL_MSOL, solTokenInfo, msolTokenInfo);
+    lstPool = await AmmImpl.create(connection, MAINNET_POOL.SOL_MSOL);
   });
 
   test('Should throw slippage error', async () => {
-    const inAmountBLamport = new BN(0.1 * 10 ** cpPool.tokenB.decimals);
+    const inAmountBLamport = new BN(0.1 * 10 ** cpPool.tokenBMint.decimals);
 
     const { tokenAInAmount: cpTokenAInAmount, tokenBInAmount: cpTokenBInAmount } = cpPool.getDepositQuote(
       new BN(0),
@@ -163,7 +164,7 @@ describe('Error parsing', () => {
       expect(ammError.errorCode).toBe(IDL.errors[4].code);
     });
 
-    const inLamportAmount = new BN(1 * 10 ** lstPool.tokenA.decimals);
+    const inLamportAmount = new BN(1 * 10 ** lstPool.tokenAMint.decimals);
     const { tokenAInAmount: depegTokenAInAmount, tokenBInAmount: depegTokenBInAmount } = lstPool.getDepositQuote(
       inLamportAmount,
       new BN(0),

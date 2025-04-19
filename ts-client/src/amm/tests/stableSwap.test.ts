@@ -1,27 +1,10 @@
-import { AnchorProvider, BN } from '@project-serum/anchor';
-import { TokenInfo } from '@solana/spl-token-registry';
+import { AnchorProvider, BN } from '@coral-xyz/anchor';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { DEFAULT_SLIPPAGE, MAINNET_POOL, STABLE_SWAP_DEFAULT_TRADE_FEE_BPS } from '../constants';
 import AmmImpl from '../index';
 import { derivePoolAddress } from '../utils';
 import { airDropSol, getOrCreateATA, mockWallet } from './utils';
-import { TOKEN_PROGRAM_ID, Token } from '@solana/spl-token';
-
-export const solTokenInfo: TokenInfo = {
-  chainId: 101,
-  address: 'So11111111111111111111111111111111111111112',
-  name: 'SOL',
-  symbol: 'SOL',
-  decimals: 9,
-};
-
-export const msolTokenInfo: TokenInfo = {
-  chainId: 101,
-  address: 'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So',
-  name: 'mSOL',
-  symbol: 'mSOL',
-  decimals: 9,
-};
+import { createMint, getMint, Mint, mintTo, NATIVE_MINT } from '@solana/spl-token';
 
 const connection = new Connection('http://127.0.0.1:8899', 'confirmed');
 const provider = new AnchorProvider(connection, mockWallet, {
@@ -29,17 +12,14 @@ const provider = new AnchorProvider(connection, mockWallet, {
 });
 
 describe('Stable Swap pool', () => {
-  let usdtToken: Token;
-  let usdcToken: Token;
-
-  let usdtTokenInfo: TokenInfo;
-  let usdcTokenInfo: TokenInfo;
-
   let USDT: PublicKey;
   let USDC: PublicKey;
 
   let mockWalletUsdtATA: PublicKey;
   let mockWalletUsdcATA: PublicKey;
+
+  let usdtMint: Mint;
+  let usdcMint: Mint;
 
   let usdtDecimal = 6;
   let usdcDecimal = 6;
@@ -52,49 +32,41 @@ describe('Stable Swap pool', () => {
   beforeAll(async () => {
     await airDropSol(connection, mockWallet.publicKey, 10);
 
-    usdtToken = await Token.createMint(
+    [USDT, USDC] = await Promise.all(
+      [usdtDecimal, usdcDecimal].map((decimal) =>
+        createMint(provider.connection, mockWallet.payer, mockWallet.publicKey, null, decimal),
+      ),
+    );
+    [mockWalletUsdtATA, mockWalletUsdcATA] = await Promise.all(
+      [USDT, USDC].map((m) => getOrCreateATA(connection, m, mockWallet.publicKey, mockWallet.payer)),
+    );
+    [usdtMint, usdcMint] = await Promise.all([USDT, USDC].map((mint) => getMint(connection, mint)));
+
+    await mintTo(
       provider.connection,
       mockWallet.payer,
-      mockWallet.publicKey,
-      null,
-      usdtDecimal,
-      TOKEN_PROGRAM_ID,
+      USDT,
+      mockWalletUsdtATA,
+      mockWallet.payer.publicKey,
+      1000000 * usdtMultiplier,
+      [],
+      {
+        commitment: 'confirmed',
+      },
     );
 
-    USDT = usdtToken.publicKey;
-    usdtTokenInfo = {
-      chainId: 101,
-      address: usdtToken.publicKey.toString(),
-      symbol: 'USDT',
-      decimals: usdtDecimal,
-      name: 'Tether USD',
-      logoURI: 'https://assets.coingecko.com/coins/images/325/large/Tether.png',
-    };
-
-    usdcToken = await Token.createMint(
+    await mintTo(
       provider.connection,
       mockWallet.payer,
-      mockWallet.publicKey,
-      null,
-      usdcDecimal,
-      TOKEN_PROGRAM_ID,
+      USDC,
+      mockWalletUsdcATA,
+      mockWallet.payer.publicKey,
+      1000000 * usdcMultiplier,
+      [],
+      {
+        commitment: 'confirmed',
+      },
     );
-
-    USDC = usdcToken.publicKey;
-    usdcTokenInfo = {
-      chainId: 101,
-      address: usdcToken.publicKey.toString(),
-      symbol: 'USDC',
-      decimals: usdcDecimal,
-      name: 'USD Coin',
-      logoURI: 'https://assets.coingecko.com/coins/images/6319/large/USD_Coin_icon.png',
-    };
-
-    mockWalletUsdtATA = await getOrCreateATA(connection, USDT, mockWallet.publicKey, mockWallet.payer);
-    mockWalletUsdcATA = await getOrCreateATA(connection, USDC, mockWallet.publicKey, mockWallet.payer);
-
-    await usdtToken.mintTo(mockWalletUsdtATA, mockWallet.payer, [], 1000000 * usdtMultiplier);
-    await usdcToken.mintTo(mockWalletUsdcATA, mockWallet.payer, [], 1000000 * usdcMultiplier);
   });
 
   describe('With fee tier', () => {
@@ -106,8 +78,8 @@ describe('Stable Swap pool', () => {
       const transaction = await AmmImpl.createPermissionlessPool(
         connection,
         mockWallet.publicKey,
-        usdtTokenInfo,
-        usdcTokenInfo,
+        USDT,
+        USDC,
         usdtDepositAmount,
         usdcDepositAmount,
         true,
@@ -118,13 +90,21 @@ describe('Stable Swap pool', () => {
       const txHash = await connection.sendRawTransaction(transaction.serialize());
       await connection.confirmTransaction(txHash, 'finalized');
 
-      const poolKey = derivePoolAddress(connection, usdtTokenInfo, usdcTokenInfo, true, tradeFeeBps);
-      stableSwapFeeTiered = await AmmImpl.create(connection, poolKey, usdtTokenInfo, usdcTokenInfo);
+      const poolKey = derivePoolAddress(
+        connection,
+        usdtMint.address,
+        usdcMint.address,
+        usdtMint.decimals,
+        usdcMint.decimals,
+        true,
+        tradeFeeBps,
+      );
+      stableSwapFeeTiered = await AmmImpl.create(connection, poolKey);
 
       expect(poolKey.toBase58()).toBe(stableSwapFeeTiered.address.toBase58());
       expect(stableSwapFeeTiered.isStablePool).toBe(true);
-      expect(stableSwapFeeTiered.tokenA.address.toString()).toBe(USDT.toString());
-      expect(stableSwapFeeTiered.tokenB.address.toString()).toBe(USDC.toString());
+      expect(stableSwapFeeTiered.tokenAMint.address.toString()).toBe(USDT.toString());
+      expect(stableSwapFeeTiered.tokenBMint.address.toString()).toBe(USDC.toString());
     });
 
     test('Get pool mint and supply', async () => {
@@ -305,8 +285,8 @@ describe('Stable Swap pool', () => {
 
     test('Swap A → B', async () => {
       await stableSwapFeeTiered.updateState();
-      const inAmountLamport = new BN(0.1 * 10 ** stableSwapFeeTiered.tokenA.decimals);
-      const inTokenMint = new PublicKey(stableSwapFeeTiered.tokenA.address);
+      const inAmountLamport = new BN(0.1 * 10 ** stableSwapFeeTiered.tokenAMint.decimals);
+      const inTokenMint = new PublicKey(stableSwapFeeTiered.tokenAMint.address);
 
       const { swapOutAmount, minSwapOutAmount } = stableSwapFeeTiered.getSwapQuote(
         inTokenMint,
@@ -344,8 +324,8 @@ describe('Stable Swap pool', () => {
 
     test('Swap B → A', async () => {
       await stableSwapFeeTiered.updateState();
-      const inAmountLamport = new BN(0.1 * 10 ** stableSwapFeeTiered.tokenB.decimals);
-      const inTokenMint = new PublicKey(stableSwapFeeTiered.tokenB.address);
+      const inAmountLamport = new BN(0.1 * 10 ** stableSwapFeeTiered.tokenBMint.decimals);
+      const inTokenMint = new PublicKey(stableSwapFeeTiered.tokenBMint.address);
 
       const { swapOutAmount, minSwapOutAmount } = stableSwapFeeTiered.getSwapQuote(
         inTokenMint,
@@ -388,17 +368,16 @@ describe('LST pool', () => {
 
   let lstPool: AmmImpl;
 
+  let mSolMint: Mint;
+
   beforeAll(async () => {
     await airDropSol(connection, mockWallet.publicKey, 10);
 
-    mockWalletMsolATA = await getOrCreateATA(
-      connection,
-      new PublicKey(msolTokenInfo.address),
-      mockWallet.publicKey,
-      mockWallet.payer,
-    );
+    mSolMint = await getMint(connection, new PublicKey('mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So'));
 
-    lstPool = await AmmImpl.create(connection, MAINNET_POOL.SOL_MSOL, solTokenInfo, msolTokenInfo);
+    mockWalletMsolATA = await getOrCreateATA(connection, mSolMint.address, mockWallet.publicKey, mockWallet.payer);
+
+    lstPool = await AmmImpl.create(connection, MAINNET_POOL.SOL_MSOL);
   });
 
   test('Is LST', () => {
@@ -407,8 +386,8 @@ describe('LST pool', () => {
 
   test('Swap SOL -> mSOL', async () => {
     await lstPool.updateState();
-    const inAmountLamport = new BN(5 * 10 ** solTokenInfo.decimals);
-    const inTokenMint = new PublicKey(solTokenInfo.address);
+    const inAmountLamport = new BN(5 * 10 ** 9);
+    const inTokenMint = NATIVE_MINT;
 
     const { swapOutAmount, minSwapOutAmount } = await lstPool.getSwapQuote(
       inTokenMint,
@@ -444,8 +423,8 @@ describe('LST pool', () => {
 
   test('Swap mSOL -> SOL', async () => {
     await lstPool.updateState();
-    const inAmountLamport = new BN(1 * 10 ** msolTokenInfo.decimals);
-    const inTokenMint = new PublicKey(msolTokenInfo.address);
+    const inAmountLamport = new BN(1 * 10 ** 9);
+    const inTokenMint = mSolMint.address;
 
     const { swapOutAmount, minSwapOutAmount } = await lstPool.getSwapQuote(
       inTokenMint,
@@ -463,7 +442,7 @@ describe('LST pool', () => {
       const swapResult = await provider.sendAndConfirm(swapTx);
       console.log('Swap Result of mSOL → SOL', swapResult);
 
-      await getOrCreateATA(connection, new PublicKey(solTokenInfo.address), mockWallet.publicKey, mockWallet.payer);
+      await getOrCreateATA(connection, NATIVE_MINT, mockWallet.publicKey, mockWallet.payer);
 
       const afterSolBalance = await provider.connection.getBalance(mockWallet.publicKey);
 
@@ -488,7 +467,7 @@ describe('LST pool', () => {
   test('Balanced deposit', async () => {
     await lstPool.updateState();
 
-    const inAmountLamport = new BN(0.1 * 10 ** solTokenInfo.decimals);
+    const inAmountLamport = new BN(0.1 * 10 ** 9);
     const depositQuote = await lstPool.getDepositQuote(inAmountLamport, new BN(0), true, DEFAULT_SLIPPAGE);
 
     const depositTx = await lstPool.deposit(
@@ -525,8 +504,8 @@ describe('LST pool', () => {
   test('Imbalance deposit', async () => {
     await lstPool.updateState();
 
-    const solDepositAmount = new BN(0.1 * 10 ** solTokenInfo.decimals);
-    const msolDepositAmount = new BN(0.1 * 10 ** msolTokenInfo.decimals);
+    const solDepositAmount = new BN(0.1 * 10 ** 9);
+    const msolDepositAmount = new BN(0.1 * 10 ** 9);
 
     const depositQuote = await lstPool.getDepositQuote(solDepositAmount, msolDepositAmount, false, DEFAULT_SLIPPAGE);
 
@@ -562,7 +541,7 @@ describe('LST pool', () => {
   test('Imbalance deposit single side', async () => {
     await lstPool.updateState();
 
-    const solDepositAmount = new BN(0.1 * 10 ** solTokenInfo.decimals);
+    const solDepositAmount = new BN(0.1 * 10 ** 9);
     const depositQuote = await lstPool.getDepositQuote(solDepositAmount, new BN(0), false, DEFAULT_SLIPPAGE);
 
     const depositTx = await lstPool.deposit(

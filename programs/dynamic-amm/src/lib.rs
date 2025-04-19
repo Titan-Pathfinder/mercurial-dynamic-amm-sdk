@@ -9,6 +9,7 @@ pub mod constants;
 pub mod error;
 pub mod event;
 pub mod instructions;
+pub mod seed;
 pub mod state;
 
 use crate::state::CurveType;
@@ -36,6 +37,16 @@ pub mod dynamic_amm {
         Ok(())
     }
 
+    /// Initialize permissionless pool with customizable params
+    pub fn initialize_customizable_permissionless_constant_product_pool(
+        ctx: Context<InitializeCustomizablePermissionlessConstantProductPool>,
+        token_a_amount: u64,
+        token_b_amount: u64,
+        params: CustomizableParams,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     /// Initialize a new permissionless pool with customized fee tier
     pub fn initialize_permissionless_pool_with_fee_tier(
         ctx: Context<InitializePermissionlessPoolWithFeeTier>,
@@ -43,6 +54,15 @@ pub mod dynamic_amm {
         trade_fee_bps: u64,
         token_a_amount: u64,
         token_b_amount: u64,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    /// Partner claim fee
+    pub fn partner_claim_fee(
+        ctx: Context<PartnerClaimFees>,
+        max_amount_a: u64,
+        max_amount_b: u64,
     ) -> Result<()> {
         Ok(())
     }
@@ -140,7 +160,11 @@ pub mod dynamic_amm {
     }
 
     /// Update trading fee charged for liquidity provider, and admin.
-    pub fn set_pool_fees(ctx: Context<SetPoolFees>, fees: PoolFees) -> Result<()> {
+    pub fn set_pool_fees(
+        ctx: Context<SetPoolFees>,
+        fees: PoolFees,
+        new_partner_fee_numerator: u64,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -150,11 +174,6 @@ pub mod dynamic_amm {
         ctx: Context<OverrideCurveParam>,
         curve_type: CurveType,
     ) -> Result<()> {
-        Ok(())
-    }
-
-    /// Transfer the admin of the pool to new admin.
-    pub fn transfer_admin(ctx: Context<TransferAdmin>) -> Result<()> {
         Ok(())
     }
 
@@ -168,12 +187,20 @@ pub mod dynamic_amm {
         ctx: Context<CreateConfig>,
         config_parameters: ConfigParameters,
     ) -> Result<()> {
-        instructions::create_config(ctx, config_parameters)
+        Ok(())
     }
 
     /// Close config
     pub fn close_config(ctx: Context<CloseConfig>) -> Result<()> {
-        instructions::close_config(ctx)
+        Ok(())
+    }
+
+    /// Update activation point
+    pub fn update_activation_point(
+        ctx: Context<UpdateActivationPoint>,
+        new_activation_point: u64,
+    ) -> Result<()> {
+        Ok(())
     }
 
     /// Initialize permissionless pool with config
@@ -182,10 +209,21 @@ pub mod dynamic_amm {
         token_a_amount: u64,
         token_b_amount: u64,
     ) -> Result<()> {
-        instructions::initialize_permissionless_constant_product_pool_with_config(
-            ctx,
-            token_a_amount,
-            token_b_amount,
-        )
+        Ok(())
+    }
+
+    /// Initialize permissionless pool with config 2
+    pub fn initialize_permissionless_constant_product_pool_with_config2(
+        ctx: Context<InitializePermissionlessConstantProductPoolWithConfig>,
+        token_a_amount: u64,
+        token_b_amount: u64,
+        activation_point: Option<u64>,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    /// Move locked lp
+    pub fn move_locked_lp(ctx: Context<MoveLockedLp>, max_amount: u64) -> Result<()> {
+        Ok(())
     }
 }
